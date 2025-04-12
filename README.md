@@ -1,2 +1,2 @@
 # fritzbox-remote-syslog
-This python script fetches the logs based on a specific interval from the FritzBox! and ships it to any remote syslogger
+This Python script fetches the logs from the FritzBox! at a certain interval and sends them to any remote syslog service.
