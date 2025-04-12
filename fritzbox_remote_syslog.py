@@ -9,15 +9,15 @@ import dataclasses
 
 load_dotenv()
 
-REPEAT_EVERY_MINUTES = os.getenv('REPEAT_EVERY_MINUTES')
-FRITZ_IP = os.getenv('FRITZ_IP')
-FRITZ_USER = os.getenv('FRITZ_USER')
-FRITZ_PASS = os.getenv('FRITZ_PASS')
-FRITZ_NAME = os.getenv('FRITZ_NAME')
-FRITZ_SERVICE_NAME = os.getenv('FRITZ_SERVICE_NAME')
+DEBUG = os.getenv('DEBUG')
+MINUTES = os.getenv('MINUTES')
+IP = os.getenv('IP')
+USER = os.getenv('USER')
+PW = os.getenv('PW')
+NAME = os.getenv('NAME')
+SERVICE = os.getenv('SERVICE')
 SYSLOG_SERVER = os.getenv('SYSLOG_SERVER')
 SYSLOG_PORT = os.getenv('SYSLOG_PORT')
-
 
 @dataclasses.dataclass(order=True, frozen=True)
 class Event:
@@ -27,11 +27,11 @@ class Event:
     msg: str
 
     def syslog(self):
-        hostname = FRITZ_NAME
-        service = FRITZ_SERVICE_NAME
+        hostname = NAME
+        service = SERVICE
         dt = datetime.datetime.strptime(self.timestamp, "%Y-%m-%d %H:%M:%S")
         formatted_timestamp = dt.strftime("%b %d %H:%M:%S")
-        return f'<38>{formatted_timestamp} {hostname} {service}[123]: {self.timestamp}-{self.msg}'
+        return f'<38>{formatted_timestamp} {hostname} {service}[123]: {self.timestamp} - {self.msg}'
 
     @classmethod
     def from_csv(cls, csv):
@@ -61,7 +61,7 @@ def parse_event(ev):
     return Event(**event)
 
 def get_fritzbox_logs():
-    fc = FritzConnection(address=FRITZ_IP, user=FRITZ_USER, password=FRITZ_PASS)
+    fc = FritzConnection(address=IP, user=USER, password=PW)
     result = fc.call_action('DeviceInfo:1', 'X_AVM-DE_GetDeviceLogPath')
     url = f'{fc.address}:{fc.port}{result["NewDeviceLogPath"]}'
     logsxml = get_xml_root(url, session=fc.session)
@@ -72,18 +72,21 @@ def send_to_syslog(message, syslog_server, syslog_port=514):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.sendto(message.encode('utf-8'), (syslog_server, syslog_port))
 
-logs = get_fritzbox_logs()
-
-t = int(REPEAT_EVERY_MINUTES) * 60
+t = int(MINUTES) * 60
 
 while True:
     now = datetime.datetime.now()
+    if (DEBUG): print(str(now) + " - woke up...")
+    logs = get_fritzbox_logs()
+
     recent_events = [event for event in logs if (now - datetime.datetime.fromisoformat(event.timestamp)).total_seconds() <= t]
     recent_events.sort(key=lambda event: event.timestamp)
 
     for event in recent_events:
+        if (DEBUG): print((now - datetime.datetime.fromisoformat(event.timestamp)).total_seconds())
         syslog_message = event.syslog()
-        print(syslog_message)
+        if (DEBUG): print(syslog_message)
         send_to_syslog(syslog_message, SYSLOG_SERVER, int(SYSLOG_PORT))
 
+    if (DEBUG): print("fallen asleep...")
     time.sleep(t)
