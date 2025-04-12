@@ -12,6 +12,9 @@
     	"ghcr.io/devcontainers/features/python:1": {}
 	},
 	"postCreateCommand": "python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",	
+    "containerEnv": {
+        "TZ": "Europe/Berlin"
+    },	
 	"mounts": [
     	"source=/run/user/1000/podman/podman.sock,target=/var/run/docker-host.sock,type=bind"
   	],
