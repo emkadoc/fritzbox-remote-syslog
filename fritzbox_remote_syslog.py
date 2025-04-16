@@ -1,3 +1,4 @@
+import uuid
 from fritzconnection import FritzConnection
 from fritzconnection.core.utils import get_xml_root
 from dotenv import load_dotenv
@@ -9,8 +10,8 @@ import dataclasses
 
 load_dotenv()
 
-DEBUG = os.getenv('DEBUG')
-MINUTES = os.getenv('MINUTES')
+DEBUG = int(os.getenv('DEBUG'))
+MINUTES = int(os.getenv('MINUTES'))
 IP = os.getenv('IP')
 USER = os.getenv('USER')
 PW = os.getenv('PW')
@@ -38,7 +39,26 @@ class Event:
         timestamp, id, group, msg = csv.split(' | ')
         return cls(timestamp=timestamp, id=id, group=group, msg=msg)
 
-def parse_event(ev):
+def parse_events(long_string: str) -> list:
+    events = []
+    lines = long_string.strip().split('\n')
+    
+    for line in lines:
+        if len(line) < 18:
+            continue
+        
+        timestamp = datetime.datetime.strptime(line[:17], "%d.%m.%y %H:%M:%S")
+        msg = line[18:]
+        
+        event_id = str(uuid.uuid4())
+        group = "internet"
+        
+        event = Event(timestamp=timestamp.strftime("20%y-%m-%d %H:%M:%S"), id=event_id, group=group, msg=msg)
+        events.append(event)
+    
+    return events
+
+def parse_event_v8(ev):
     event = {}
     for item in ev:
         tag, value = item.tag, item.text.strip()
@@ -51,7 +71,6 @@ def parse_event(ev):
             case 'time':
                 value = datetime.time.fromisoformat(value)
         event[tag] = value
-    # combine date+time
     event['timestamp'] = str(datetime.datetime.combine(event['date'], event['time']))
     del event['date']
     del event['time']
@@ -62,17 +81,25 @@ def parse_event(ev):
 
 def get_fritzbox_logs():
     fc = FritzConnection(address=IP, user=USER, password=PW)
-    result = fc.call_action('DeviceInfo:1', 'X_AVM-DE_GetDeviceLogPath')
-    url = f'{fc.address}:{fc.port}{result["NewDeviceLogPath"]}'
-    logsxml = get_xml_root(url, session=fc.session)
-    logs = set(parse_event(event) for event in logsxml)
+    logs = None;
+    if(float(fc.system_version) >= 8):
+        if (DEBUG): print("FRITZ!OS Version >= 8")
+        result = fc.call_action('DeviceInfo:1', 'X_AVM-DE_GetDeviceLogPath')
+        url = f'{fc.address}:{fc.port}{result["NewDeviceLogPath"]}'
+        logsxml = get_xml_root(url, session=fc.session)
+        logs = set(parse_event_v8(event) for event in logsxml)
+    else:
+        if (DEBUG): print("FRITZ!OS Version < 8")
+        result = fc.call_action('DeviceInfo:1', 'GetDeviceLog')
+        event_string = result["NewDeviceLog"]
+        logs = set(parse_events(event_string))
     return logs
 
 def send_to_syslog(message, syslog_server, syslog_port=514):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.sendto(message.encode('utf-8'), (syslog_server, syslog_port))
 
-t = int(MINUTES) * 60
+t = MINUTES * 60
 
 while True:
     now = datetime.datetime.now()
